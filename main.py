@@ -10,7 +10,7 @@ EXIST_ROW_LEN = 4
 SEP = '-'
 SEP_INDEX = 1
 ENV_REGEXP = re.compile(r'\$\{?([^\s{}:]+)(:([^{}]+)?)?}?')
-ROW_REGEXP = re.compile(r'\|([^|]+)' * EXIST_ROW_LEN + r'\|')
+ROW_REGEXP = re.compile(r'\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|')
 app = typer.Typer()
 
 
@@ -28,7 +28,7 @@ def create_row(regexp_groups: tuple):
 def parse_row(regexp_groups: tuple):
     row = []
     for group in regexp_groups:
-        row.append(group)
+        row.append(str(group).strip())
     return row[:]
 
 
@@ -61,7 +61,7 @@ def normalize_row(rows: list, col_num: int):
 
 
 def sort_rows(rows: list):
-    return sorted(rows, key=cmp_to_key(lambda x, y: x[0] <= y[0] and x[3] >= y[3]))
+    return sorted(rows, key=lambda x: x[0])
 
 
 def create_table(rows: list):
@@ -90,10 +90,17 @@ def create(
             file = open(file_uri)
             file_data = file.read()
             existed_rows = [parse_row(row) for row in ROW_REGEXP.findall(file_data)]
-            rows += existed_rows
+            existed_rows_map = dict()
+            for existed_row in existed_rows:
+                existed_rows_map[existed_row[0]] = existed_row
+            for i in range(len(rows)):
+                row = rows[i]
+                existed_row = existed_rows_map.get(row[0])
+                if existed_row is not None:
+                    rows[i] = existed_row
 
-    rows = sort_rows(rows)
     rows = remove_duplicates(rows)
+    rows = sort_rows(rows)
 
     rows.insert(0, ['env', 'default', 'secret', 'description'])
     rows.insert(1, [SEP] * ROW_LEN)
@@ -105,7 +112,7 @@ def create(
     if output is None:
         print(table)
     else:
-        f = open(output, "a")
+        f = open(output, "w")
         f.write(table)
         f.close()
 

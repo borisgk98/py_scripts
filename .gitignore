@@ -252,3 +252,8 @@ cython_debug/
 #.idea/
 
 # End of https://www.toptal.com/developers/gitignore/api/python,intellij+all
+
+table.txt
+*.yaml
+*.yml
+/result.table.txt
