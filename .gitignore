@@ -257,3 +257,4 @@ table.txt
 *.yaml
 *.yml
 /result.table.txt
+/out.txt

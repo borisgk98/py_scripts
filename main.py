@@ -2,8 +2,9 @@ import re
 from functools import reduce
 import typer
 from typing import List
-from functools import cmp_to_key
-
+import yaml
+import os
+import jmespath
 
 ROW_LEN = 4
 EXIST_ROW_LEN = 4
@@ -64,27 +65,19 @@ def sort_rows(rows: list):
     return sorted(rows, key=lambda x: x[0])
 
 
-def create_table(rows: list):
+def build_markdown_table(rows: list):
     table = ''
     for row in rows:
         table += '|' + reduce(lambda x, y: x + '|' + y, row) + '|\n'
     return table
 
 
-@app.command()
-def create(
-        config_file: List[str] = typer.Option(default=[]),
-        output: str = typer.Option(default=None),
-        exist_table: List[str] = typer.Option(default=None)
-           ):
-
+def create_rows(config_file, exist_table, ignoring):
     rows = []
-
     for file_uri in config_file:
         file = open(file_uri)
         file_data = file.read()
         rows += [create_row(env) for env in ENV_REGEXP.findall(file_data)]
-
     if exist_table is not None:
         for file_uri in exist_table:
             file = open(file_uri)
@@ -96,11 +89,65 @@ def create(
             for i in range(len(rows)):
                 row = rows[i]
                 existed_row = existed_rows_map.get(row[0])
-                if existed_row is not None:
+                if existed_row is not None and (rows[i][3] == '' or rows[i][3] is None):
                     rows[i] = existed_row
-
     rows = remove_duplicates(rows)
     rows = sort_rows(rows)
+    if ignoring is not None:
+        file = open(ignoring)
+        ignoring_envs = file.readlines()
+        rows = list(filter(lambda x: x[0] not in ignoring_envs, rows))
+    return rows
+
+
+def print_result(output, result):
+    if output is None:
+        print(result)
+    else:
+        f = open(output, "w")
+        f.write(result)
+        f.close()
+
+
+def load_config(config):
+    file_data = open(config).read()
+    yaml_data = os.path.expandvars(file_data)
+    config = yaml.load(yaml_data, yaml.Loader)
+    config_file = jmespath.search('\"table.creator\".config', config)
+    exist_table = jmespath.search('\"table.creator\".\"exist.table\"', config)
+    ignoring = jmespath.search('\"table.creator\".ignoring', config)
+    output = jmespath.search('\"table.creator\".output', config)
+    return config_file, exist_table, ignoring, output
+
+
+@app.command("create-env")
+def create_env(
+        config_file: List[str] = typer.Option(default=[]),
+        output: str = typer.Option(default=None),
+        exist_table: List[str] = typer.Option(default=None),
+        ignoring: str = typer.Option(default=None),
+        config: str = typer.Option(default=None)
+):
+    if config is not None:
+        config_file, exist_table, ignoring, output = load_config(config)
+    rows = create_rows(config_file, exist_table, ignoring)
+    result = ''
+    for row in rows:
+        result += row[0] + '=' + row[1] + '\n'
+    print_result(output, result)
+
+
+@app.command("create-table")
+def create(
+        config_file: List[str] = typer.Option(default=[]),
+        output: str = typer.Option(default=None),
+        exist_table: List[str] = typer.Option(default=None),
+        ignoring: str = typer.Option(default=None),
+        config: str = typer.Option(default=None)
+):
+    if config is not None:
+        config_file, exist_table, ignoring, output = load_config(config)
+    rows = create_rows(config_file, exist_table, ignoring)
 
     rows.insert(0, ['env', 'default', 'secret', 'description'])
     rows.insert(1, [SEP] * ROW_LEN)
@@ -108,13 +155,8 @@ def create(
         normalize_row(rows, i)
 
     print('Total: %d' % (len(rows) - 1))
-    table = create_table(rows)
-    if output is None:
-        print(table)
-    else:
-        f = open(output, "w")
-        f.write(table)
-        f.close()
+    table = build_markdown_table(rows)
+    print_result(output, table)
 
 
 if __name__ == '__main__':
